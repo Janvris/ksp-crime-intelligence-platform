@@ -1,0 +1,21 @@
+[
+  {"district":"Bengaluru Urban","crimeType":"Theft / Burglary","lat":12.9716,"lng":77.5946,"intensity":0.91,"daysAgo":3},
+  {"district":"Bengaluru Urban","crimeType":"Cybercrime","lat":12.9380,"lng":77.6200,"intensity":0.74,"daysAgo":7},
+  {"district":"Bengaluru Urban","crimeType":"Assault","lat":12.9012,"lng":77.5665,"intensity":0.58,"daysAgo":12},
+  {"district":"Bengaluru Urban","crimeType":"Narcotics","lat":12.9904,"lng":77.6102,"intensity":0.63,"daysAgo":20},
+  {"district":"Bengaluru Urban","crimeType":"Theft / Burglary","lat":12.9450,"lng":77.5588,"intensity":0.71,"daysAgo":6},
+  {"district":"Mysuru","crimeType":"Assault","lat":12.2958,"lng":76.6394,"intensity":0.61,"daysAgo":15},
+  {"district":"Mysuru","crimeType":"Cybercrime","lat":12.3120,"lng":76.6677,"intensity":0.52,"daysAgo":9},
+  {"district":"Mysuru","crimeType":"Theft / Burglary","lat":12.2871,"lng":76.6218,"intensity":0.66,"daysAgo":18},
+  {"district":"Mysuru","crimeType":"Narcotics","lat":12.3285,"lng":76.6095,"intensity":0.57,"daysAgo":28},
+  {"district":"Hubli-Dharwad","crimeType":"Theft / Burglary","lat":15.3647,"lng":75.1240,"intensity":0.64,"daysAgo":11},
+  {"district":"Hubli-Dharwad","crimeType":"Cybercrime","lat":15.3410,"lng":75.1112,"intensity":0.49,"daysAgo":13},
+  {"district":"Hubli-Dharwad","crimeType":"Assault","lat":15.3809,"lng":75.1328,"intensity":0.55,"daysAgo":22},
+  {"district":"Hubli-Dharwad","crimeType":"Narcotics","lat":15.3590,"lng":75.1512,"intensity":0.48,"daysAgo":30},
+  {"district":"Kalaburagi","crimeType":"Theft / Burglary","lat":17.3297,"lng":76.8343,"intensity":0.46,"daysAgo":17},
+  {"district":"Kalaburagi","crimeType":"Assault","lat":17.3362,"lng":76.8428,"intensity":0.44,"daysAgo":24},
+  {"district":"Kalaburagi","crimeType":"Cybercrime","lat":17.3185,"lng":76.8220,"intensity":0.41,"daysAgo":26},
+  {"district":"Tumakuru","crimeType":"Theft / Burglary","lat":13.3409,"lng":77.1010,"intensity":0.53,"daysAgo":8},
+  {"district":"Tumakuru","crimeType":"Narcotics","lat":13.3492,"lng":77.1118,"intensity":0.40,"daysAgo":19},
+  {"district":"Tumakuru","crimeType":"Assault","lat":13.3218,"lng":77.1216,"intensity":0.45,"daysAgo":21}
+]

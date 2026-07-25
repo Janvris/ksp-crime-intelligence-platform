@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KSP Crime Intelligence Platform</title>
+    <meta name="description" content="Karnataka State Police AI-driven crime analytics: spatiotemporal hotspot detection, network link analysis, and predictive intelligence.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: { colors: { ksp: { 50:'#f0f4f8',800:'#102a43',900:'#0b1f32',panel:'#15324c' } }, fontFamily:{ sans:['Inter','system-ui','sans-serif'] } } }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+    <style>
+        body{font-family:'Inter',sans-serif;background-color:#0b1f32;color:#f0f4f8;overflow:hidden}
+        .glass-panel{background:rgba(21,50,76,.7);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.08);border-radius:.75rem;box-shadow:0 10px 25px -5px rgba(0,0,0,.5)}
+        .pulse-red{animation:pulse-red-anim 2s infinite}
+        @keyframes pulse-red-anim{0%{box-shadow:0 0 0 0 rgba(239,68,68,.6);border-color:rgba(239,68,68,.8)}70%{box-shadow:0 0 0 10px rgba(239,68,68,0);border-color:rgba(239,68,68,.3)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0);border-color:rgba(255,255,255,.08)}}
+        .leaflet-layer,.leaflet-control-zoom-in,.leaflet-control-zoom-out,.leaflet-control-attribution{filter:invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%)}
+        ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#334e68;border-radius:3px}::-webkit-scrollbar-thumb:hover{background:#486581}
+        .lineage-panel{display:none}
+        @keyframes slideUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+        .sidebar-btn{transition:all .2s}
+        .sidebar-btn.active{background:rgba(59,130,246,.2)!important;color:#60a5fa!important}
+        .anomaly-pulse{animation:pulse-red-anim 2.5s infinite;border:1px solid rgba(239,68,68,.4)}
+        @keyframes toastIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes toastOut{from{opacity:1}to{opacity:0}}
+        .toast-enter{animation:toastIn .3s ease}.toast-exit{animation:toastOut .4s ease forwards}
+        /* District name labels on choropleth map */
+        .district-label {
+            background: rgba(10, 25, 47, 0.82);
+            border: 1px solid rgba(255,255,255,0.18);
+            color: #f0f4f8;
+            font-size: 9.5px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            padding: 2px 6px;
+            border-radius: 10px;
+            white-space: nowrap;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.55);
+            letter-spacing: 0.02em;
+        }
+        .district-label::before { display: none !important; }
+        .leaflet-tooltip.district-label { opacity: 1 !important; }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col">
+
+<!-- TOP NAV -->
+<header class="h-16 border-b border-white/10 bg-[#102a43]/80 backdrop-blur flex items-center justify-between px-6 z-20 shrink-0">
+    <div class="flex items-center gap-4">
+        <div class="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-blue-500/30">
+            <i class="fa-solid fa-shield-halved"></i>
+        </div>
+        <div>
+            <h1 class="text-xl font-bold tracking-tight text-white leading-tight">KSP Intelligence Platform</h1>
+            <p class="text-xs text-blue-400 font-medium tracking-wide">STATE CRIME RECORDS BUREAU</p>
+        </div>
+    </div>
+    <div class="flex items-center gap-6">
+        <div class="flex items-center gap-1 bg-[#0b1f32] rounded-lg p-1 border border-white/10">
+            <button id="role-analyst"      class="role-btn px-3 py-1.5 rounded-md bg-blue-600 text-white text-xs font-medium transition-colors"         onclick="switchRole('analyst',this)">SCRB Analyst</button>
+            <button id="role-sp"           class="role-btn px-3 py-1.5 rounded-md text-gray-400 hover:text-white text-xs font-medium transition-colors" onclick="switchRole('sp',this)">District SP</button>
+            <button id="role-investigator" class="role-btn px-3 py-1.5 rounded-md text-gray-400 hover:text-white text-xs font-medium transition-colors" onclick="switchRole('investigator',this)">Investigator</button>
+            <button id="role-igp"          class="role-btn px-3 py-1.5 rounded-md text-gray-400 hover:text-white text-xs font-medium transition-colors" onclick="switchRole('igp',this)">IGP / DGP</button>
+        </div>
+        <div class="h-8 w-px bg-white/10"></div>
+        <div class="flex items-center gap-3">
+            <div class="relative cursor-pointer group" onclick="showModal('alert-modal')">
+                <i class="fa-solid fa-bell text-gray-400 group-hover:text-white transition-colors text-lg"></i>
+                <span class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse"></span>
+            </div>
+            <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-500 flex items-center justify-center border border-white/20 ml-2">
+                <span class="text-sm font-semibold text-white">AK</span>
+            </div>
+        </div>
+    </div>
+</header>
+
+<div class="flex-1 flex overflow-hidden">
+    <!-- SIDEBAR -->
+    <aside class="w-16 flex-col border-r border-white/10 bg-[#102a43]/50 hidden md:flex shrink-0">
+        <nav class="flex flex-col gap-5 py-6 items-center">
+            <button id="nav-dashboard"  class="sidebar-btn active w-10 h-10 rounded-xl flex items-center justify-center hover:bg-blue-600 hover:text-white text-blue-400" title="Live Command Center"    onclick="closePanels();setSidebarActive('nav-dashboard')"><i class="fa-solid fa-earth-asia text-lg"></i></button>
+            <button id="nav-network"    class="sidebar-btn w-10 h-10 rounded-xl text-gray-400 flex items-center justify-center hover:bg-white/10 hover:text-white" title="Network Analysis"               onclick="setSidebarActive('nav-network');showModal('network-modal')"><i class="fa-solid fa-project-diagram text-lg"></i></button>
+            <button id="nav-predictive" class="sidebar-btn w-10 h-10 rounded-xl text-gray-400 flex items-center justify-center hover:bg-white/10 hover:text-white" title="Predictive AI"                  onclick="setSidebarActive('nav-predictive');showModal('predictive-modal')"><i class="fa-solid fa-brain text-lg"></i></button>
+            <button id="nav-socio"      class="sidebar-btn w-10 h-10 rounded-xl text-gray-400 flex items-center justify-center hover:bg-white/10 hover:text-white" title="Socio-Economic Patterns"       onclick="setSidebarActive('nav-socio');showModal('socio-modal')"><i class="fa-solid fa-chart-pie text-lg"></i></button>
+        </nav>
+        <div class="mt-auto py-6 flex justify-center border-t border-white/10">
+            <button class="sidebar-btn w-10 h-10 rounded-xl text-gray-400 flex items-center justify-center hover:text-white" title="Settings" onclick="showModal('settings-modal')"><i class="fa-solid fa-gear text-lg"></i></button>
+        </div>
+    </aside>
+
+    <!-- MAIN DASHBOARD -->
+    <main class="flex-1 flex flex-col p-4 gap-4 overflow-y-auto">
+
+        <!-- Filters -->
+        <div class="flex justify-between items-center z-10 relative shrink-0">
+            <div class="flex gap-3">
+                <select id="districtFilter" class="bg-[#102a43] border border-white/20 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500 shadow-lg" onchange="applyFilters()">
+                    <option>All Karnataka</option><option>Bengaluru Urban</option><option>Mysuru</option><option>Hubli-Dharwad</option><option>Kalaburagi</option><option>Raichur</option>
+                </select>
+                <select id="crimeTypeFilter" class="bg-[#102a43] border border-white/20 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500 shadow-lg" onchange="applyFilters()">
+                    <option value="all">All Crime Types</option><option value="Theft / Burglary" selected>Theft / Burglary</option><option value="Cybercrime">Cybercrime</option><option value="Assault">Assault</option><option value="Narcotics">Narcotics</option>
+                </select>
+                <select id="timeFilter" class="bg-[#102a43] border border-white/20 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500 shadow-lg">
+                    <option>Last 30 Days</option><option>Last 3 Months</option><option>Year to Date</option>
+                </select>
+            </div>
+            <button class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-lg transition-colors flex items-center gap-2" onclick="generateReport()">
+                <i class="fa-regular fa-file-pdf"></i> Generate Briefing
+            </button>
+        </div>
+
+        <!-- KPI STRIP -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0">
+            <div class="glass-panel p-4 flex flex-col justify-between">
+                <div class="flex justify-between items-start"><span class="text-gray-400 text-sm font-medium">Total Incidents</span><div class="bg-white/10 p-1.5 rounded-md"><i class="fa-solid fa-list-ol text-blue-400"></i></div></div>
+                <div class="mt-2 flex items-baseline gap-2"><span class="text-3xl font-bold text-white" id="kpi-total">4,285</span><span class="text-sm font-medium text-emerald-400 flex items-center"><i class="fa-solid fa-arrow-down mr-1"></i>2.4%</span></div>
+                <div class="text-xs text-gray-500 mt-1" id="kpi-scope">State-wide &middot; last 30 days</div>
+            </div>
+            <div class="glass-panel p-4 flex flex-col justify-between relative cursor-pointer" onclick="toggleLineage('hotspot-lineage')">
+                <div class="flex justify-between items-start"><span class="text-gray-400 text-sm font-medium">Active Hotspots</span><div class="bg-white/10 p-1.5 rounded-md"><i class="fa-solid fa-fire text-orange-400"></i></div></div>
+                <div class="mt-2 flex items-baseline gap-2"><span class="text-3xl font-bold text-white" id="hotspot-count">14</span><span class="text-sm font-medium text-red-400 flex items-center" id="hotspot-delta"><i class="fa-solid fa-arrow-up mr-1"></i>3</span></div>
+                <div class="text-xs text-gray-500 mt-1" id="hotspot-context">KDE Density &gt; 2.0 &middot; <span class="text-blue-400">click for lineage</span></div>
+                <div id="hotspot-lineage" class="lineage-panel absolute top-full left-0 w-80 mt-2 z-50 glass-panel p-4 text-xs shadow-xl" style="animation:slideUp .3s ease">
+                    <div class="flex justify-between items-center border-b border-white/10 pb-2 mb-2"><span class="font-bold text-white"><i class="fa-solid fa-microchip mr-1 text-blue-400"></i> AI Lineage Trail</span><span class="bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded text-[10px]">v2.1.0</span></div>
+                    <div class="space-y-1.5 text-gray-300">
+                        <p><span class="text-gray-500">Algorithm:</span> Kernel Density Estimation</p>
+                        <p><span class="text-gray-500">Parameters:</span> bandwidth=0.01, cell_size=500m</p>
+                        <p><span class="text-gray-500">Data Source:</span> 247 FIRs (2026-06-15 &rarr; 2026-07-15)</p>
+                        <p><span class="text-gray-500">Confidence:</span> <span class="text-green-400 font-bold">94.2%</span></p>
+                        <p><span class="text-gray-500">ETL Version:</span> v1.3.2</p>
+                        <p><span class="text-gray-500">Audit ID:</span> <code class="text-blue-300">aud_f893nc293</code></p>
+                    </div>
+                </div>
+            </div>
+            <div class="glass-panel pulse-red p-4 flex flex-col justify-between cursor-pointer" onclick="showModal('alert-modal')">
+                <div class="flex justify-between items-start"><span class="text-gray-400 text-sm font-medium">Emerging Threats</span><div class="bg-red-500/20 p-1.5 rounded-md"><i class="fa-solid fa-triangle-exclamation text-red-500"></i></div></div>
+                <div class="mt-2 flex items-baseline gap-2"><span class="text-3xl font-bold text-red-400" id="threat-count">2</span><span class="text-sm font-medium text-red-400" id="threat-badge">Z-Score &gt; 3.0</span></div>
+                <div class="text-xs text-red-400/80 mt-1 font-medium" id="threat-context">Requires immediate attention</div>
+            </div>
+            <div class="glass-panel p-4 flex flex-col justify-between">
+                <div class="flex justify-between items-start"><span class="text-gray-400 text-sm font-medium">Arrest Rate</span><div class="bg-white/10 p-1.5 rounded-md"><i class="fa-solid fa-handcuffs text-emerald-400"></i></div></div>
+                <div class="mt-2 flex items-baseline gap-2"><span class="text-3xl font-bold text-white" id="arrest-rate">42.8%</span><span class="text-sm font-medium text-emerald-400 flex items-center" id="arrest-delta"><i class="fa-solid fa-arrow-up mr-1"></i>5.1%</span></div>
+                <div class="text-xs text-gray-500 mt-1" id="arrest-context">Cases with chargesheet filed</div>
+            </div>
+        </div>
+
+        <!-- MAP + FORECAST -->
+        <div class="flex-1 flex gap-4 min-h-[360px]">
+            <div class="glass-panel flex-1 rounded-xl overflow-hidden relative flex flex-col border border-white/10 shadow-lg">
+                <div class="absolute top-4 left-4 z-[400] bg-[#0b1f32]/90 backdrop-blur border border-white/10 rounded-lg p-3 shadow-lg pointer-events-auto">
+                    <h3 class="text-sm font-bold text-white mb-1">Spatial Distribution</h3>
+                    <p class="text-xs text-gray-400 mb-3">KDE Heatmap &middot; Bengaluru</p>
+                    <div class="flex flex-col gap-2">
+                        <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer"><input type="checkbox" checked id="toggleHeatmap" class="rounded border-gray-600 bg-gray-700"> Hotspot Heatmap</label>
+                        <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer"><input type="checkbox" checked id="toggleMarkers" class="rounded border-gray-600 bg-gray-700"> Individual Incidents</label>
+                    </div>
+                </div>
+                <div id="map" class="w-full h-full z-0 bg-[#0a1526]"></div>
+            </div>
+            <div class="glass-panel w-1/3 p-4 flex flex-col relative cursor-pointer" onclick="toggleLineage('forecast-lineage')">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-chart-line text-blue-400"></i> Crime Volume Forecast</h3>
+                    <button class="text-gray-500 hover:text-blue-400 transition-colors text-xs"><i class="fa-solid fa-circle-info"></i> Lineage</button>
+                </div>
+                <div id="forecast-lineage" class="lineage-panel absolute top-12 right-4 w-72 z-50 glass-panel p-4 text-xs shadow-xl" style="animation:slideUp .3s ease">
+                    <div class="flex justify-between items-center border-b border-white/10 pb-2 mb-2"><span class="font-bold text-white"><i class="fa-solid fa-brain mr-1 text-purple-400"></i> Zia AutoML Model</span><span class="bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded text-[10px]">v3.4.1</span></div>
+                    <div class="space-y-1.5 text-gray-300">
+                        <p><span class="text-gray-500">Algorithm:</span> Gradient Boosted Regressor</p>
+                        <p><span class="text-gray-500">Training Window:</span> 36 Months (3 years)</p>
+                        <p><span class="text-gray-500">MAPE Error:</span> <span class="text-green-400">12.4%</span> (holdout)</p>
+                        <p><span class="text-gray-500">CI Bands:</span> 95% confidence interval</p>
+                        <div class="mt-2 pt-2 border-t border-white/10"><p class="text-gray-500 font-semibold mb-1">Top Features:</p>
+                            <div class="flex justify-between"><span>Unemployment Rate</span><span class="text-red-400 font-bold">+24%</span></div>
+                            <div class="flex justify-between"><span>Festival Period (Lag 7)</span><span class="text-red-400 font-bold">+18%</span></div>
+                            <div class="flex justify-between"><span>Urbanization Rate</span><span class="text-yellow-400 font-bold">+12%</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div id="trendChart" class="flex-1 w-full"></div>
+            </div>
+        </div>
+
+        <!-- BOTTOM ROW: 3 panels (Temporal + Top-10 Categories + Seasonal Decomp) -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 h-64 shrink-0">
+            <div class="glass-panel p-4 flex flex-col">
+                <h3 class="text-sm font-bold text-white mb-2 flex items-center gap-2"><i class="fa-solid fa-calendar-days text-blue-400"></i> Temporal Pattern Analysis</h3>
+                <div id="heatmapChart" class="flex-1 w-full"></div>
+            </div>
+            <div class="glass-panel p-4 flex flex-col">
+                <h3 class="text-sm font-bold text-white mb-2 flex items-center gap-2"><i class="fa-solid fa-sitemap text-blue-400"></i> Category Distribution <span class="text-gray-500 font-normal text-xs ml-1">(Top 10)</span></h3>
+                <div id="barChart" class="flex-1 w-full"></div>
+            </div>
+            <div class="glass-panel p-4 flex flex-col">
+                <h3 class="text-sm font-bold text-white mb-2 flex items-center gap-2"><i class="fa-solid fa-wave-square text-purple-400"></i> Seasonal Decomposition <span class="text-gray-500 font-normal text-xs ml-1">(STL)</span></h3>
+                <div id="seasonalChart" class="flex-1 w-full"></div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- ===== NETWORK MODAL ===== -->
+<div id="network-modal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div class="bg-[#0b1f32] border border-white/10 rounded-xl w-full h-full max-w-7xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+        <div class="flex justify-between items-center p-4 border-b border-white/10 bg-[#102a43] shrink-0">
+            <h2 class="text-lg font-bold text-white flex items-center gap-2"><i class="fa-solid fa-project-diagram text-indigo-400"></i> Organized Crime Network Analysis <span class="bg-indigo-500/20 text-indigo-300 text-xs px-2 py-0.5 rounded ml-2">build_graph() &middot; Louvain</span></h2>
+            <button class="text-gray-400 hover:text-white" onclick="hideModal('network-modal');setSidebarActive('nav-dashboard')"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="flex-1 flex overflow-hidden">
+            <div class="w-72 border-r border-white/10 p-4 bg-[#102a43]/30 overflow-y-auto shrink-0">
+                <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Seed Entity Search</h3>
+                <input type="text" placeholder="Enter Name, FIR No, or Phone..." class="w-full bg-[#0b1f32] border border-white/20 rounded-lg px-3 py-2 text-sm text-white mb-4 focus:outline-none focus:border-blue-500">
+                <div class="bg-[#102a43] border border-indigo-500/30 rounded-lg p-3 cursor-pointer hover:border-indigo-400/60 transition-colors mb-3" onclick="loadOffenderProfile()">
+                    <div class="flex justify-between items-start"><span class="text-sm font-bold text-white">Ravi Kumar (A1)</span><span class="bg-red-500/20 text-red-400 text-[10px] px-1.5 py-0.5 rounded uppercase font-bold">Repeat</span></div>
+                    <p class="text-xs text-gray-400 mt-1">4 linked FIRs &middot; 3 districts</p>
+                </div>
+                <div id="offender-profile" class="hidden bg-[#0b1f32]/80 border border-purple-500/30 rounded-lg p-3 text-xs mb-3">
+                    <div class="font-bold text-purple-300 mb-2 flex items-center gap-2"><i class="fa-solid fa-id-card text-purple-400"></i> Repeat Offender Profile</div>
+                    <div class="space-y-1 text-gray-300">
+                        <p><span class="text-gray-500">Name:</span> Ravi Kumar &middot; alias "Raja"</p>
+                        <p><span class="text-gray-500">DOB:</span> 12-Mar-1988</p>
+                        <p><span class="text-gray-500">Prior FIRs:</span> 4 (2022-2026)</p>
+                        <p><span class="text-gray-500">Districts:</span> BLR Urban, Mysuru, Tumakuru</p>
+                        <p><span class="text-gray-500">MO Cluster:</span> Vehicle Theft - Master Key</p>
+                        <p><span class="text-gray-500">Conviction:</span> 1 (2023) &middot; 3 pending</p>
+                        <p><span class="text-gray-500">Co-offenders:</span> Mani (A2), Suresh (A3)</p>
+                    </div>
+                </div>
+                <div class="border-t border-white/10 pt-4">
+                    <h4 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Algorithms</h4>
+                    <button id="btn-louvain" class="w-full bg-indigo-600/20 text-indigo-300 border border-indigo-600/50 rounded-lg px-3 py-2 text-xs font-medium hover:bg-indigo-600/40 transition-colors mb-2 flex justify-between items-center" onclick="runLouvain()">Find Communities (Louvain) <i class="fa-solid fa-play"></i></button>
+                    <button id="btn-centrality" class="w-full bg-blue-600/20 text-blue-300 border border-blue-600/50 rounded-lg px-3 py-2 text-xs font-medium hover:bg-blue-600/40 transition-colors mb-2 flex justify-between items-center" onclick="runCentrality()">Compute Centrality <i class="fa-solid fa-play"></i></button>
+                    <button id="btn-mo" class="w-full bg-purple-600/20 text-purple-300 border border-purple-600/50 rounded-lg px-3 py-2 text-xs font-medium hover:bg-purple-600/40 transition-colors flex justify-between items-center" onclick="runMOCluster()">Find Similar MOs (QuickML) <i class="fa-solid fa-play"></i></button>
+                </div>
+                <div id="community-results" class="hidden mt-4 border-t border-white/10 pt-4">
+                    <h4 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Detected Communities</h4>
+                    <div class="space-y-2">
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-red-500 inline-block shrink-0"></span><span class="text-xs text-gray-300">Community A - 4 nodes</span><span class="ml-auto text-[10px] text-red-400 font-bold bg-red-500/10 px-1.5 py-0.5 rounded">HIGH</span></div>
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-yellow-500 inline-block shrink-0"></span><span class="text-xs text-gray-300">Community B - 3 nodes</span><span class="ml-auto text-[10px] text-yellow-400 font-bold bg-yellow-500/10 px-1.5 py-0.5 rounded">MED</span></div>
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-emerald-500 inline-block shrink-0"></span><span class="text-xs text-gray-300">Community C - 2 nodes</span><span class="ml-auto text-[10px] text-green-400 font-bold bg-green-500/10 px-1.5 py-0.5 rounded">LOW</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="flex-1 relative" id="networkGraphContainer">
+                <div class="absolute top-4 left-4 z-50 glass-panel p-3 text-xs w-52 shadow-lg pointer-events-none">
+                    <h4 class="font-bold text-white mb-2 border-b border-white/10 pb-1">Graph Legend</h4>
+                    <div class="flex items-center gap-2 mb-1"><span class="w-3 h-3 rounded-full bg-red-500 block shrink-0"></span><span class="text-gray-300">Accused Person</span></div>
+                    <div class="flex items-center gap-2 mb-1"><span class="w-3 h-3 rounded-full bg-blue-500 block shrink-0"></span><span class="text-gray-300">FIR / Incident</span></div>
+                    <div class="flex items-center gap-2 mb-1"><span class="w-3 h-3 rounded-full bg-yellow-500 block shrink-0"></span><span class="text-gray-300">Bank Account</span></div>
+                    <div class="mt-2 pt-2 border-t border-white/10">
+                        <div class="flex items-center gap-2 mb-1"><span class="w-5 h-0.5 bg-gray-400 block"></span><span class="text-gray-300">Co-Accused</span></div>
+                        <div class="flex items-center gap-2 mb-1"><span class="w-5 h-0.5 bg-yellow-500 block"></span><span class="text-gray-300">Financial Link</span></div>
+                        <div class="flex items-center gap-2"><span class="w-5 h-0.5 bg-purple-500 block"></span><span class="text-gray-300">MO Similarity (&gt;0.85)</span></div>
+                    </div>
+                </div>
+                <div id="centrality-badge" class="hidden absolute bottom-4 left-4 z-50 glass-panel p-3 text-xs w-52 shadow-lg">
+                    <h4 class="font-bold text-white mb-2"><i class="fa-solid fa-ranking-star text-blue-400 mr-1"></i> Centrality Scores</h4>
+                    <div class="space-y-1.5">
+                        <div class="flex justify-between"><span class="text-gray-400">Ravi Kumar (A1)</span><span class="text-red-400 font-bold">BC: 0.83</span></div>
+                        <div class="flex justify-between"><span class="text-gray-400">Mani (A2)</span><span class="text-yellow-400 font-bold">BC: 0.41</span></div>
+                        <div class="flex justify-between"><span class="text-gray-400">Suresh (A3)</span><span class="text-blue-400 font-bold">BC: 0.22</span></div>
+                    </div>
+                </div>
+                <div id="mo-result" class="hidden absolute top-4 right-4 z-50 glass-panel p-3 text-xs w-60 shadow-lg" style="border-color:rgba(168,85,247,.4)">
+                    <h4 class="font-bold text-white mb-2"><i class="fa-solid fa-dna text-purple-400 mr-1"></i> MO Cluster Result</h4>
+                    <p class="text-gray-300 mb-1">FIR 101/2026 &harr; FIR 102/2026</p>
+                    <p class="text-purple-300 font-bold">Cosine Similarity: 0.92</p>
+                    <p class="text-gray-400 mt-1">Cluster: Vehicle Theft - Master Key</p>
+                    <p class="text-gray-500 text-[10px] mt-1">QuickML embeddings &middot; 85-category MO taxonomy</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ALERT MODAL -->
+<div id="alert-modal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-black/80 backdrop-blur-md p-6">
+    <div class="bg-[#0b1f32] border border-red-500/50 rounded-xl w-full max-w-2xl shadow-2xl shadow-red-900/20 overflow-hidden relative">
+        <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-600 to-orange-500"></div>
+        <div class="p-6">
+            <div class="flex items-start justify-between mb-4">
+                <div class="flex items-center gap-3 text-red-500">
+                    <i class="fa-solid fa-triangle-exclamation text-3xl"></i>
+                    <div><h2 class="text-xl font-bold text-white">Emerging Trend Alert</h2><p class="text-sm text-red-400 font-medium">Auto-detected by AI Anomaly Engine &middot; Z-Score threshold exceeded</p></div>
+                </div>
+                <button class="text-gray-400 hover:text-white ml-4" onclick="hideModal('alert-modal')"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <div class="bg-[#102a43] rounded-lg p-4 border border-red-500/20 mb-4">
+                <h3 class="text-lg font-semibold text-white mb-1">Surge in Vehicle Thefts - Bengaluru South</h3>
+                <p class="text-gray-300 text-sm mb-4">Statistically significant deviation in vehicle thefts in Jayanagar &amp; JP Nagar jurisdictions over the last 72 hours. Push notification dispatched to 3 SPs.</p>
+                <div class="grid grid-cols-2 gap-4 border-t border-white/10 pt-4">
+                    <div><span class="block text-xs text-gray-500 uppercase tracking-wide font-bold mb-1">Current Volume</span><span class="text-2xl font-bold text-white">18 <span class="text-sm font-normal text-gray-400">incidents</span></span></div>
+                    <div><span class="block text-xs text-gray-500 uppercase tracking-wide font-bold mb-1">Historical Baseline</span><span class="text-2xl font-bold text-white">4.2 <span class="text-sm font-normal text-gray-400">avg/week</span></span></div>
+                    <div><span class="block text-xs text-gray-500 uppercase tracking-wide font-bold mb-1">Z-Score</span><span class="text-2xl font-bold text-red-400">3.4 <i class="fa-solid fa-arrow-trend-up text-sm"></i></span></div>
+                    <div><span class="block text-xs text-gray-500 uppercase tracking-wide font-bold mb-1">MO Linkage</span><span class="text-lg font-bold text-purple-400">Master Key (94% match)</span></div>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button class="px-4 py-2 rounded-lg bg-[#102a43] text-gray-300 hover:text-white text-sm font-medium transition-colors border border-white/10" onclick="hideModal('alert-modal')">Acknowledge</button>
+                <button class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium transition-colors flex items-center gap-2" onclick="hideModal('alert-modal');showToast('Station alert issued to Jayanagar PS, JP Nagar PS, and 3 SPs via Push Notification.','success')"><i class="fa-solid fa-tower-broadcast"></i> Issue Station Alert</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PREDICTIVE AI MODAL (FIXED) -->
+<div id="predictive-modal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div class="bg-[#0b1f32] border border-white/10 rounded-xl w-full h-full max-w-7xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+        <div class="flex justify-between items-center p-4 border-b border-white/10 bg-[#102a43] shrink-0">
+            <h2 class="text-lg font-bold text-white flex items-center gap-2"><i class="fa-solid fa-brain text-purple-400"></i> Predictive AI &amp; Anomaly Detection Pipeline <span class="bg-purple-500/20 text-purple-300 text-xs px-2 py-0.5 rounded ml-2">Zia AutoML v3.4</span></h2>
+            <button class="text-gray-400 hover:text-white" onclick="hideModal('predictive-modal');setSidebarActive('nav-dashboard')"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="flex-1 flex overflow-hidden">
+            <div class="w-72 border-r border-white/10 p-4 overflow-y-auto bg-[#102a43]/20 shrink-0">
+                <div class="flex items-center justify-between mb-3"><h3 class="text-sm font-bold text-white">District Risk Scores</h3><span class="text-xs text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded">Horizon: 30d</span></div>
+                <div id="risk-score-list" class="space-y-2"></div>
+            </div>
+            <div class="flex-1 flex flex-col p-4">
+                <div class="flex items-center justify-between mb-2 shrink-0">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-map text-purple-400"></i> Karnataka District Risk Choropleth</h3>
+                    <div class="flex gap-3 text-xs text-gray-400">
+                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-emerald-500 inline-block"></span>Low (&lt;50)</span>
+                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-yellow-500 inline-block"></span>Medium (50-69)</span>
+                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-red-500 inline-block"></span>High (&ge;70)</span>
+                    </div>
+                </div>
+                <div id="riskMapChart" class="flex-1 w-full rounded-lg overflow-hidden" style="min-height:300px"></div>
+            </div>
+            <div class="w-80 border-l border-white/10 p-4 overflow-y-auto bg-[#102a43]/20 shrink-0 flex flex-col gap-4">
+                <div>
+                    <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="fa-solid fa-bug text-red-400"></i> Anomaly Detection Log</h3>
+                    <div id="anomaly-log" class="space-y-2"></div>
+                </div>
+                <div class="border-t border-white/10 pt-4">
+                    <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="fa-solid fa-chart-bar text-indigo-400"></i> Feature Importance</h3>
+                    <div id="featureImportanceChart" class="h-44 w-full"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SOCIO-ECONOMIC MODAL (NEW) -->
+<div id="socio-modal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div class="bg-[#0b1f32] border border-white/10 rounded-xl w-full h-full max-w-7xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+        <div class="flex justify-between items-center p-4 border-b border-white/10 bg-[#102a43] shrink-0">
+            <h2 class="text-lg font-bold text-white flex items-center gap-2"><i class="fa-solid fa-chart-pie text-teal-400"></i> Socio-Economic Correlation Analysis <span class="bg-teal-500/20 text-teal-300 text-xs px-2 py-0.5 rounded ml-2">socio_correlation() &middot; Pearson r</span></h2>
+            <button class="text-gray-400 hover:text-white" onclick="hideModal('socio-modal');setSidebarActive('nav-dashboard')"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="flex-1 flex overflow-hidden">
+            <div class="w-56 border-r border-white/10 p-4 bg-[#102a43]/20 shrink-0 overflow-y-auto">
+                <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Indicator</h3>
+                <div class="space-y-1.5 mb-5" id="socio-btns">
+                    <button class="socio-btn w-full text-left px-3 py-2 rounded-lg text-xs font-medium bg-teal-600/30 text-teal-300 border border-teal-600/50" onclick="loadSocioData('unemployment',event)">Unemployment Rate</button>
+                    <button class="socio-btn w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-gray-400 hover:bg-white/5 border border-transparent" onclick="loadSocioData('literacy',event)">Literacy Rate</button>
+                    <button class="socio-btn w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-gray-400 hover:bg-white/5 border border-transparent" onclick="loadSocioData('urbanization',event)">Urbanization Rate</button>
+                    <button class="socio-btn w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-gray-400 hover:bg-white/5 border border-transparent" onclick="loadSocioData('gdp',event)">GDP per Capita</button>
+                    <button class="socio-btn w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-gray-400 hover:bg-white/5 border border-transparent" onclick="loadSocioData('migration',event)">Migration Index</button>
+                </div>
+                <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Crime Category</h3>
+                <select id="socioCrimeType" class="w-full bg-[#0b1f32] border border-white/20 rounded-lg px-2 py-1.5 text-xs text-white mb-4" onchange="refreshSocioCharts()">
+                    <option>Theft / Burglary</option><option>Cybercrime</option><option>Assault</option><option>Narcotics</option>
+                </select>
+                <div class="p-3 bg-[#102a43] rounded-lg border border-white/10">
+                    <p class="text-xs text-gray-400 font-semibold mb-1">Pearson Result</p>
+                    <p id="pearson-result" class="text-2xl font-bold text-teal-400">r = +0.72</p>
+                    <p id="pvalue-result" class="text-xs text-gray-500 mt-0.5">p = 0.003 (significant)</p>
+                    <p class="text-xs text-gray-600 mt-1">31 districts x 3 years</p>
+                </div>
+                <div class="mt-3 p-3 bg-[#102a43] rounded-lg border border-white/10">
+                    <p class="text-xs font-bold text-white mb-2">Key Insights</p>
+                    <div class="space-y-1 text-xs text-gray-300">
+                        <p><span class="text-teal-400 font-bold">up</span> Unemployment to Theft (r=0.72)</p>
+                        <p><span class="text-teal-400 font-bold">up</span> Urbanization to Cybercrime (r=0.68)</p>
+                        <p><span class="text-yellow-400 font-bold">--</span> Migration to Assault (r=0.45)</p>
+                        <p><span class="text-blue-400 font-bold">dn</span> Literacy to Narcotics (r=-0.58)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="flex-1 p-4 flex flex-col">
+                <h3 class="text-sm font-bold text-white mb-2" id="socio-chart-title">Scatter: Unemployment Rate vs Crime Risk Score (31 Districts)</h3>
+                <div id="socioScatterChart" class="flex-1 w-full"></div>
+            </div>
+            <div class="w-72 border-l border-white/10 p-4 bg-[#102a43]/20 shrink-0">
+                <h3 class="text-sm font-bold text-white mb-3">Correlation Matrix</h3>
+                <div id="corrMatrixChart" class="h-64 w-full"></div>
+                <p class="text-xs text-gray-500 mt-2">Indicators x Crime types &middot; Pearson r</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SETTINGS MODAL (NEW) -->
+<div id="settings-modal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-black/60 backdrop-blur-sm p-6">
+    <div class="bg-[#0b1f32] border border-white/10 rounded-xl w-full max-w-md shadow-2xl">
+        <div class="flex justify-between items-center p-4 border-b border-white/10 bg-[#102a43] rounded-t-xl">
+            <h2 class="text-base font-bold text-white flex items-center gap-2"><i class="fa-solid fa-gear text-gray-400"></i> Platform Settings</h2>
+            <button class="text-gray-400 hover:text-white" onclick="hideModal('settings-modal')"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="p-5 space-y-3">
+            <div class="flex justify-between items-center p-3 bg-[#102a43] rounded-lg"><div><p class="text-sm font-medium text-white">Dark Mode</p><p class="text-xs text-gray-500">Force dark theme</p></div><div class="w-10 h-5 bg-blue-600 rounded-full relative cursor-pointer"><div class="w-4 h-4 bg-white rounded-full absolute right-0.5 top-0.5 shadow"></div></div></div>
+            <div class="flex justify-between items-center p-3 bg-[#102a43] rounded-lg"><div><p class="text-sm font-medium text-white">Auto-refresh (5 min)</p><p class="text-xs text-gray-500">Live Catalyst polling</p></div><div class="w-10 h-5 bg-blue-600 rounded-full relative cursor-pointer"><div class="w-4 h-4 bg-white rounded-full absolute right-0.5 top-0.5 shadow"></div></div></div>
+            <div class="flex justify-between items-center p-3 bg-[#102a43] rounded-lg"><div><p class="text-sm font-medium text-white">Push Notifications</p><p class="text-xs text-gray-500">Red-zone alerts to mobile</p></div><div class="w-10 h-5 bg-gray-700 rounded-full relative cursor-pointer"><div class="w-4 h-4 bg-white rounded-full absolute left-0.5 top-0.5 shadow"></div></div></div>
+            <div class="p-3 bg-[#102a43] rounded-lg"><p class="text-sm font-medium text-white mb-2">Data Retention (DPDP Act 2023)</p><div class="space-y-1 text-xs text-gray-400"><div class="flex justify-between"><span>FIR Data</span><span class="text-white">10 years</span></div><div class="flex justify-between"><span>Audit Logs</span><span class="text-white">7 years</span></div><div class="flex justify-between"><span>Anomaly Logs</span><span class="text-white">2 years</span></div></div></div>
+            <div class="p-3 bg-[#102a43]/50 rounded-lg text-xs text-gray-500 border border-white/5"><p class="font-bold text-gray-400 mb-1">Platform Info</p><p>Version: 1.0.0-prototype &middot; Zoho Catalyst (Slate)</p><p>Pipeline v2.1.0 &middot; Zia AutoML v3.4.1 &middot; QuickML v1.2</p></div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ================================================================
+// DATA
+// ================================================================
+const karnatakaDistricts=[
+    {name:'Bengaluru Urban',lat:12.97,lng:77.59,risk:85,crime:1240},
+    {name:'Kalaburagi',lat:17.33,lng:76.82,risk:78,crime:580},
+    {name:'Raichur',lat:16.21,lng:77.36,risk:75,crime:520},
+    {name:'Yadgir',lat:16.77,lng:77.14,risk:73,crime:470},
+    {name:'Hubli-Dharwad',lat:15.36,lng:75.13,risk:72,crime:620},
+    {name:'Ballari',lat:15.15,lng:76.93,risk:70,crime:490},
+    {name:'Bidar',lat:17.91,lng:77.52,risk:69,crime:440},
+    {name:'Mysuru',lat:12.29,lng:76.64,risk:68,crime:680},
+    {name:'Koppal',lat:15.35,lng:76.15,risk:67,crime:380},
+    {name:'Vijayapura',lat:16.83,lng:75.72,risk:65,crime:430},
+    {name:'Vijayanagara',lat:15.35,lng:76.46,risk:64,crime:350},
+    {name:'Davangere',lat:14.46,lng:75.92,risk:63,crime:410},
+    {name:'Bagalkot',lat:16.18,lng:75.70,risk:62,crime:370},
+    {name:'Kolar',lat:13.14,lng:78.13,risk:61,crime:330},
+    {name:'Belagavi',lat:15.85,lng:74.50,risk:60,crime:560},
+    {name:'Chitradurga',lat:14.23,lng:76.40,risk:57,crime:320},
+    {name:'Tumakuru',lat:13.34,lng:77.10,risk:58,crime:460},
+    {name:'Chikkaballapura',lat:13.43,lng:77.73,risk:56,crime:290},
+    {name:'Mandya',lat:12.52,lng:76.90,risk:53,crime:310},
+    {name:'Mangaluru',lat:12.91,lng:74.86,risk:55,crime:480},
+    {name:'Bengaluru Rural',lat:13.22,lng:77.42,risk:52,crime:270},
+    {name:'Haveri',lat:14.79,lng:75.40,risk:49,crime:260},
+    {name:'Chamarajanagar',lat:11.92,lng:76.94,risk:47,crime:220},
+    {name:'Shivamogga',lat:13.93,lng:75.57,risk:48,crime:360},
+    {name:'Gadag',lat:15.43,lng:75.63,risk:55,crime:230},
+    {name:'Hassan',lat:13.00,lng:76.10,risk:42,crime:280},
+    {name:'Chikkamagaluru',lat:13.32,lng:75.78,risk:40,crime:240},
+    {name:'Dakshina Kannada',lat:12.85,lng:75.22,risk:45,crime:340},
+    {name:'Udupi',lat:13.34,lng:74.75,risk:38,crime:200},
+    {name:'Uttara Kannada',lat:14.78,lng:74.68,risk:35,crime:180},
+    {name:'Kodagu',lat:12.42,lng:75.74,risk:33,crime:150}
+];
+
+const socioData={
+    unemployment:{label:'Unemployment Rate (%)',values:[8.2,11.2,13.4,12.1,9.5,10.3,9.8,7.3,10.3,11.7,8.1,9.8,7.6,6.1,8.7,8.1,7.8,6.9,6.7,7.2,6.3,7.8,7.2,8.9,8.0,5.4,4.6,5.9,3.5,3.1,2.9],pearson:0.72,pvalue:'0.003'},
+    literacy:{label:'Literacy Rate (%)',values:[85,62,60,62,72,68,71,80,68,60,74,71,77,78,76,74,79,79,79,74,80,72,74,80,76,82,84,80,89,90,92],pearson:-0.48,pvalue:'0.009'},
+    urbanization:{label:'Urbanization Rate (%)',values:[92,38,41,38,78,43,60,68,43,44,47,60,48,45,55,47,52,52,42,55,45,38,35,40,48,35,35,58,32,28,22],pearson:0.58,pvalue:'0.007'},
+    gdp:{label:'GDP per Capita (Rs thou)',values:[485,87,92,87,280,102,148,195,102,92,132,148,118,120,145,132,135,135,108,145,110,105,96,110,128,88,95,145,82,76,68],pearson:-0.38,pvalue:'0.032'},
+    migration:{label:'Migration Index',values:[0.92,0.22,0.21,0.22,0.62,0.34,0.44,0.55,0.34,0.21,0.36,0.44,0.38,0.31,0.45,0.36,0.39,0.39,0.32,0.42,0.31,0.34,0.29,0.31,0.38,0.25,0.27,0.42,0.24,0.21,0.18],pearson:0.45,pvalue:'0.018'}
+};
+window.currentIndicator='unemployment';
+
+// ================================================================
+// UI HELPERS
+// ================================================================
+function setSidebarActive(id){
+    document.querySelectorAll('.sidebar-btn').forEach(b=>{b.classList.remove('active');b.classList.add('text-gray-400');});
+    const el=document.getElementById(id);
+    if(el){el.classList.add('active');el.classList.remove('text-gray-400');}
+}
+function closePanels(){['network-modal','predictive-modal','socio-modal','settings-modal'].forEach(hideModal);}
+function toggleLineage(id){
+    const el=document.getElementById(id);
+    const vis=el.style.display==='block';
+    document.querySelectorAll('.lineage-panel').forEach(p=>p.style.display='none');
+    if(!vis){el.style.display='block';}
+}
+function showModal(id){
+    const el=document.getElementById(id);
+    if(!el){console.error('Modal missing:',id);return;}
+    el.classList.remove('hidden');el.classList.add('flex');
+    if(id==='network-modal'   &&!window.networkInit)   setTimeout(initNetworkGraph,350);
+    if(id==='predictive-modal'&&!window.predictiveInit) setTimeout(initPredictive,350);
+    if(id==='socio-modal'     &&!window.socioInit)      setTimeout(initSocio,350);
+}
+function hideModal(id){const el=document.getElementById(id);if(!el)return;el.classList.add('hidden');el.classList.remove('flex');}
+function showToast(msg,type){
+    const c={info:'bg-[#102a43] border-white/20',success:'bg-emerald-900 border-emerald-500',error:'bg-red-900 border-red-500'};
+    const ic={info:'fa-circle-info text-blue-400',success:'fa-check text-emerald-400',error:'fa-xmark text-red-400'};
+    const t=document.createElement('div');
+    t.className='fixed bottom-6 right-6 z-[2000] '+c[type]+' border text-white px-5 py-3 rounded-xl shadow-2xl text-sm flex items-center gap-3 toast-enter';
+    t.innerHTML='<i class="fa-solid '+ic[type]+'"></i> '+msg;
+    document.body.appendChild(t);
+    setTimeout(()=>{t.classList.replace('toast-enter','toast-exit');setTimeout(()=>t.remove(),450);},3500);
+}
+function switchRole(role,btn){
+    document.querySelectorAll('.role-btn').forEach(b=>{b.classList.remove('bg-blue-600','text-white');b.classList.add('text-gray-400','hover:text-white');});
+    btn.classList.remove('text-gray-400','hover:text-white');btn.classList.add('bg-blue-600','text-white');
+    const m={analyst:['4,285','State-wide - all 3 pipelines'],sp:['342','Own district - all pipelines'],investigator:['28','Own PS - no AI predictive'],igp:['4,285','Aggregate - no PII']};
+    document.getElementById('kpi-total').textContent=m[role][0];
+    document.getElementById('kpi-scope').textContent=m[role][1];
+    showToast('RBAC: '+btn.textContent.trim()+' - '+m[role][1],'info');
+}
+function generateReport(){
+    const t=document.createElement('div');
+    t.className='fixed bottom-6 right-6 z-[2000] bg-indigo-900 border border-indigo-500 text-white px-5 py-3 rounded-xl shadow-2xl text-sm flex items-center gap-3 toast-enter';
+    t.innerHTML='<i class="fa-solid fa-spinner fa-spin text-indigo-400"></i> SmartBrowz: Compiling intelligence briefing with AI lineage appendices...';
+    document.body.appendChild(t);
+    setTimeout(()=>{t.innerHTML='<i class="fa-solid fa-file-pdf text-green-400"></i> PDF ready - 14 pages with full data lineage trail.';setTimeout(()=>{t.classList.replace('toast-enter','toast-exit');setTimeout(()=>t.remove(),450);},4000);},2600);
+}
+function getTimeWindowDays(label){const m={'Last 30 Days':30,'Last 3 Months':90,'Year to Date':365};return m[label]||30;}
+function populateDistrictOptions(){const districtFilter=document.getElementById('districtFilter');if(!districtFilter||incidents.length===0)return;const districts=[...new Set(incidents.map(inc=>inc.district))].sort();districtFilter.innerHTML='<option>All Karnataka</option>'+districts.map(d=>'<option>'+d+'</option>').join('');}
+function getDerivedKpiStats(filteredIncidents){const total=filteredIncidents.length||0;const hotspots=filteredIncidents.filter(inc=>inc.intensity>=0.6).length;const emergencyCrimeCount=filteredIncidents.filter(inc=>['Cybercrime','Narcotics','Assault'].includes(inc.crimeType)).length;const arrestRate=Math.min(95,Math.max(18,Math.round((filteredIncidents.filter(inc=>inc.daysAgo<=14).length/Math.max(total,1))*100)));const avgIntensity=total?(filteredIncidents.reduce((sum,inc)=>sum+inc.intensity,0)/total):0;const delta=Math.max(1,Math.round((avgIntensity*100)/2));return{hotspots,emergencyCrimeCount,arrestRate,delta,avgIntensity};}function updateKpiSummary(filteredIncidents){const totalEl=document.getElementById('kpi-total');const scopeEl=document.getElementById('kpi-scope');const hotspotCountEl=document.getElementById('hotspot-count');const hotspotDeltaEl=document.getElementById('hotspot-delta');const threatCountEl=document.getElementById('threat-count');const threatBadgeEl=document.getElementById('threat-badge');const arrestRateEl=document.getElementById('arrest-rate');const arrestDeltaEl=document.getElementById('arrest-delta');const district=document.getElementById('districtFilter').value||'All Karnataka';const timeWindow=document.getElementById('timeFilter').value||'Last 30 Days';const stats=getDerivedKpiStats(filteredIncidents);if(totalEl)totalEl.textContent=String(filteredIncidents.length);if(scopeEl)scopeEl.textContent=district==='All Karnataka'?district+' · '+timeWindow:district+' · '+timeWindow;if(hotspotCountEl)hotspotCountEl.textContent=String(stats.hotspots);if(hotspotDeltaEl)hotspotDeltaEl.innerHTML='<i class="fa-solid fa-arrow-up mr-1"></i>'+stats.delta;if(threatCountEl)threatCountEl.textContent=String(Math.max(1,stats.emergencyCrimeCount));if(threatBadgeEl)threatBadgeEl.textContent='Z-Score > '+Math.max(2,Math.round(stats.avgIntensity*3));if(arrestRateEl)arrestRateEl.textContent=stats.arrestRate+'%';if(arrestDeltaEl)arrestDeltaEl.innerHTML='<i class="fa-solid fa-arrow-up mr-1"></i>'+Math.max(1,Math.round(stats.avgIntensity*8))+'%';}
+function renderSpatialMap(filteredIncidents){const filteredHeatData=filteredIncidents.map(i=>[i.lat,i.lng,i.intensity]);if(window.heatLayer)window.heatLayer.setLatLngs(filteredHeatData);if(markersLayer){markersLayer.clearLayers();filteredIncidents.forEach(inc=>{const popup='<div class="text-xs p-1"><b>FIR:</b> '+(Math.floor(Math.random()*9000)+1000)+'/2026<br><b>Type:</b> '+inc.crimeType+'<br><b>District:</b> '+inc.district+'<br><b>AI Score:</b> '+inc.intensity.toFixed(2)+'</div>';L.marker([inc.lat,inc.lng],{icon:dotIcon}).bindPopup(popup).addTo(markersLayer);});}updateKpiSummary(filteredIncidents);if(filteredIncidents.length>0){const bounds=L.latLngBounds(filteredIncidents.map(i=>[i.lat,i.lng]));map.fitBounds(bounds.pad(0.25),{padding:[18,18]});setTimeout(()=>map.invalidateSize(),100);}}
+function applyFilters(){const district=document.getElementById('districtFilter').value||'All Karnataka';const crimeType=document.getElementById('crimeTypeFilter').value||'all';const timeWindow=document.getElementById('timeFilter').value||'Last 30 Days';const maxDays=getTimeWindowDays(timeWindow);const filtered=incidents.filter(inc=>{const districtMatch=district==='All Karnataka'||inc.district===district;const crimeMatch=crimeType==='all'||inc.crimeType===crimeType;const timeMatch=inc.daysAgo<=maxDays;return districtMatch&&crimeMatch&&timeMatch;});if(filtered.length===0){showToast('No incidents found for selected filters.','error');return;}renderSpatialMap(filtered);showToast('Filters applied - map refreshed.','info');}
+
+// ================================================================
+// LEAFLET MAP
+// ================================================================
+const map=L.map('map',{zoomControl:false,attributionControl:false}).setView([12.9716,77.5946],12);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:20}).addTo(map);
+const districtCenters={'Bengaluru Urban':{lat:12.9716,lng:77.5946},'Mysuru':{lat:12.2958,lng:76.6394},'Hubli-Dharwad':{lat:15.3647,lng:75.1240}};
+const districtNames=Object.keys(districtCenters);
+const crimeTypePool=['theft','cyber','assault','narcotics'];
+let incidents=[];let heatData=[];async function loadIncidentData(){try{const res=await fetch('./data/karnataka-crime-data.json');if(!res.ok)throw new Error('Unable to load incident data');incidents=await res.json();heatData=incidents.map(i=>[i.lat,i.lng,i.intensity]);return incidents;}catch(err){console.error('Incident dataset load failed:',err);showToast('Unable to load map data.','error');return [];}}
+window.heatLayer=L.heatLayer(heatData,{radius:25,blur:15,maxZoom:14,max:1.0,gradient:{0.2:'#3b82f6',0.5:'#10b981',0.7:'#f59e0b',1.0:'#ef4444'}}).addTo(map);
+const markersLayer=L.layerGroup();
+const dotIcon=L.divIcon({className:'',html:'<div style="width:8px;height:8px;background:rgba(255,255,255,.7);border-radius:50%;box-shadow:0 0 4px rgba(0,0,0,.5)"></div>',iconSize:[8,8],iconAnchor:[4,4]});
+async function hydrateMap(){await loadIncidentData();populateDistrictOptions();if(window.heatLayer)window.heatLayer.setLatLngs(heatData);markersLayer.clearLayers();incidents.forEach(inc=>{L.marker([inc.lat,inc.lng],{icon:dotIcon}).bindPopup('<div class="text-xs p-1"><b>FIR:</b> '+(Math.floor(Math.random()*9000)+1000)+'/2026<br><b>Type:</b> '+inc.crimeType+'<br><b>District:</b> '+inc.district+'<br><b>AI Score:</b> '+inc.intensity.toFixed(2)+'</div>').addTo(markersLayer);});markersLayer.addTo(map);updateKpiSummary(incidents);renderAnalytics(incidents);setTimeout(()=>map.invalidateSize(),100);}hydrateMap();
+document.getElementById('toggleHeatmap').addEventListener('change',e=>e.target.checked?map.addLayer(window.heatLayer):map.removeLayer(window.heatLayer));
+document.getElementById('toggleMarkers').addEventListener('change',e=>e.target.checked?map.addLayer(markersLayer):map.removeLayer(markersLayer));
+
+// ================================================================
+// TREND + FORECAST (with CI bands)
+// ================================================================
+const trendChart=echarts.init(document.getElementById('trendChart'));
+const dates=[],historical=[],forecast=[],upperCI=[],lowerCI=[];
+let base=20,now=new Date('2026-07-16');
+for(let i=60;i>=0;i--){let d=new Date(now);d.setDate(d.getDate()-i);dates.push(echarts.format.formatTime('MM-dd',d));const wk=d.getDay()===0||d.getDay()===6;historical.push(Math.round(base+(wk?15:0)+(Math.random()*10-5)));forecast.push('-');upperCI.push('-');lowerCI.push('-');}
+let lastVal=historical[historical.length-1];
+forecast[60]=lastVal;upperCI[60]=lastVal+5;lowerCI[60]=lastVal-5;
+for(let i=1;i<=30;i++){let d=new Date(now);d.setDate(d.getDate()+i);dates.push(echarts.format.formatTime('MM-dd',d));historical.push('-');const wk=d.getDay()===0||d.getDay()===6;const fv=lastVal+(i*.2)+(wk?15:0);forecast.push(fv.toFixed(1));upperCI.push((fv+8+(i*.25)).toFixed(1));lowerCI.push(Math.max(0,(fv-7-(i*.1))).toFixed(1));}
+trendChart.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},legend:{data:['Historical','AI Forecast','95% CI'],textStyle:{color:'#94a3b8',fontSize:10},top:2,right:4},grid:{left:'3%',right:'4%',bottom:'5%',top:'20%',containLabel:true},xAxis:{type:'category',boundaryGap:false,data:dates,axisLine:{lineStyle:{color:'rgba(255,255,255,.15)'}},axisLabel:{color:'#94a3b8',fontSize:9}},yAxis:{type:'value',splitLine:{lineStyle:{color:'rgba(255,255,255,.05)'}},axisLabel:{color:'#94a3b8',fontSize:10}},series:[
+    {name:'Historical',type:'line',smooth:true,data:historical,itemStyle:{color:'#3b82f6'},showSymbol:false,areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(59,130,246,.45)'},{offset:1,color:'rgba(59,130,246,0)'}])}},
+    {name:'AI Forecast',type:'line',smooth:true,data:forecast,itemStyle:{color:'#f59e0b'},lineStyle:{type:'dashed',width:2},showSymbol:false},
+    {name:'CI Upper',type:'line',smooth:true,data:upperCI,lineStyle:{opacity:0},showSymbol:false,stack:'ci',areaStyle:{color:'rgba(245,158,11,0)'}},
+    {name:'95% CI',type:'line',smooth:true,data:lowerCI,lineStyle:{opacity:0},showSymbol:false,stack:'ci',areaStyle:{color:'rgba(245,158,11,.18)'}}
+]});
+
+// ================================================================
+// TEMPORAL HEATMAP
+// ================================================================
+const heatmapChart=echarts.init(document.getElementById('heatmapChart'));
+const days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const hours=['12a','2a','4a','6a','8a','10a','12p','2p','4p','6p','8p','10p'];
+const td=[];
+for(let i=0;i<7;i++)for(let j=0;j<12;j++){let v=Math.random()*10;if((i===0||i===5||i===6)&&(j>8||j<2))v+=15+Math.random()*10;td.push([j,i,Math.round(v)]);}
+heatmapChart.setOption({tooltip:{position:'top'},grid:{top:'5%',bottom:'15%',left:'10%',right:'5%'},xAxis:{type:'category',data:hours,axisLine:{show:false},axisLabel:{color:'#94a3b8',fontSize:9},splitArea:{show:true,areaStyle:{color:['rgba(255,255,255,.02)','rgba(255,255,255,0)']}}},yAxis:{type:'category',data:days,axisLine:{show:false},axisLabel:{color:'#94a3b8',fontSize:10}},visualMap:{min:0,max:30,calculable:true,orient:'horizontal',left:'center',bottom:'0%',itemWidth:10,itemHeight:90,textStyle:{color:'#94a3b8',fontSize:9},inRange:{color:['#1e3a8a','#3b82f6','#f59e0b','#ef4444']}},series:[{name:'Incidents',type:'heatmap',data:td,itemStyle:{borderColor:'#0b1f32',borderWidth:2,borderRadius:2}}]});
+
+// ================================================================
+// CATEGORY BAR CHART - TOP 10 (fixed from 5)
+// ================================================================
+const barChart=echarts.init(document.getElementById('barChart'));
+barChart.setOption({tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},grid:{top:'3%',bottom:'5%',left:'5%',right:'8%',containLabel:true},xAxis:{type:'value',splitLine:{lineStyle:{color:'rgba(255,255,255,.05)'}},axisLabel:{show:false}},yAxis:{type:'category',data:['Forgery','POCSO Act','Robbery','Kidnapping','Narcotics','Cheating','Assault','Cybercrime','Theft/Burglary','Vehicle Theft'],axisLine:{show:false},axisTick:{show:false},axisLabel:{color:'#e2e8f0',fontSize:9}},series:[{type:'bar',data:[90,105,180,210,245,280,420,510,780,850],itemStyle:{borderRadius:[0,4,4,0],color:new echarts.graphic.LinearGradient(0,0,1,0,[{offset:0,color:'#3b82f6'},{offset:1,color:'#8b5cf6'}])},label:{show:true,position:'right',color:'#fff',fontSize:9}}]});
+
+// ================================================================
+// SEASONAL DECOMPOSITION STL (new)
+// ================================================================
+const seasonalChart=echarts.init(document.getElementById('seasonalChart'));
+const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const trendC=months.map((_,i)=>Math.round(180+i*8+(Math.random()-.5)*5));
+const seasonC=months.map((_,i)=>Math.round(20*Math.sin((i/12)*2*Math.PI-1)+(i===9?35:0)+(i===10?25:0)+(i===4?8:0)));
+const residC=months.map(()=>Math.round((Math.random()-.5)*18));
+const origS=months.map((_,i)=>trendC[i]+seasonC[i]+residC[i]);
+seasonalChart.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},legend:{data:['Original','Trend','Seasonal','Residual'],textStyle:{color:'#94a3b8',fontSize:9},top:2,right:4,itemWidth:10,itemHeight:8},grid:{left:'5%',right:'4%',bottom:'8%',top:'22%',containLabel:true},xAxis:{type:'category',data:months,axisLine:{lineStyle:{color:'rgba(255,255,255,.15)'}},axisLabel:{color:'#94a3b8',fontSize:9}},yAxis:{type:'value',splitLine:{lineStyle:{color:'rgba(255,255,255,.05)'}},axisLabel:{color:'#94a3b8',fontSize:9}},series:[
+    {name:'Original',type:'line',data:origS,smooth:true,lineStyle:{color:'#94a3b8',width:1.5},showSymbol:false},
+    {name:'Trend',type:'line',data:trendC,smooth:true,lineStyle:{color:'#3b82f6',width:2},showSymbol:false},
+    {name:'Seasonal',type:'bar',data:seasonC,itemStyle:{color:'rgba(168,85,247,.5)',borderRadius:[3,3,0,0]}},
+    {name:'Residual',type:'scatter',data:residC,symbolSize:5,itemStyle:{color:'#f59e0b',opacity:.9}}
+]});
+
+// ================================================================
+// NETWORK GRAPH (with visual Louvain, Centrality, MO Cluster)
+// ================================================================
+window.networkInit=false;window.netChart=null;
+let networkNodes=[],networkEdges=[];
+function initNetworkGraph(){
+    window.netChart=echarts.init(document.getElementById('networkGraphContainer'));
+    networkNodes=[
+        {id:'0',name:'Ravi Kumar\n(A1)',symbolSize:38,community:0,itemStyle:{color:'#ef4444'}},
+        {id:'1',name:'Mani (A2)',symbolSize:26,community:0,itemStyle:{color:'#ef4444'}},
+        {id:'2',name:'Suresh (A3)',symbolSize:22,community:1,itemStyle:{color:'#ef4444'}},
+        {id:'F1',name:'HDFC AC..493',symbolSize:20,community:0,itemStyle:{color:'#eab308'}},
+        {id:'FIR100',name:'FIR 100/26',symbolSize:14,community:0,itemStyle:{color:'#3b82f6'}},
+        {id:'FIR101',name:'FIR 101/26',symbolSize:14,community:0,itemStyle:{color:'#3b82f6'}},
+        {id:'FIR102',name:'FIR 102/26',symbolSize:14,community:1,itemStyle:{color:'#3b82f6'}},
+        {id:'FIR103',name:'FIR 103/26',symbolSize:14,community:0,itemStyle:{color:'#3b82f6'}},
+        {id:'FIR104',name:'FIR 104/26',symbolSize:14,community:1,itemStyle:{color:'#3b82f6'}},
+    ];
+    networkEdges=[
+        {source:'0',target:'1',lineStyle:{width:3,color:'#9ca3af'}},
+        {source:'0',target:'2',lineStyle:{width:2,color:'#9ca3af'}},
+        {source:'0',target:'F1',lineStyle:{width:2,color:'#eab308'}},
+        {source:'1',target:'F1',lineStyle:{width:2,color:'#eab308'}},
+        {source:'0',target:'FIR100'},{source:'1',target:'FIR100'},{source:'1',target:'FIR101'},
+        {source:'2',target:'FIR102'},{source:'0',target:'FIR103'},{source:'2',target:'FIR104'},
+        {source:'FIR101',target:'FIR102',lineStyle:{type:'dashed',color:'#a855f7',width:2,curveness:.35}}
+    ];
+    renderNetworkGraph();
+    window.networkInit=true;
+}
+function renderNetworkGraph(){
+    window.netChart.setOption({tooltip:{formatter:p=>p.data.name||(p.data.source+' to '+p.data.target)},animationDurationUpdate:1200,animationEasingUpdate:'quinticInOut',series:[{type:'graph',layout:'force',force:{repulsion:650,edgeLength:[60,200],gravity:.08},data:networkNodes,links:networkEdges,roam:true,label:{show:true,position:'right',color:'#e2e8f0',fontSize:10},lineStyle:{curveness:.08}}]});
+}
+function runLouvain(){
+    const btn=document.getElementById('btn-louvain');
+    btn.innerHTML='Running... <i class="fa-solid fa-spinner fa-spin"></i>';btn.disabled=true;
+    setTimeout(()=>{
+        const cc=['#ef4444','#f59e0b','#10b981'];
+        networkNodes=networkNodes.map(n=>({...n,itemStyle:{color:cc[n.community]||'#6366f1'}}));
+        renderNetworkGraph();
+        btn.innerHTML='Communities Found <i class="fa-solid fa-check"></i>';
+        btn.className=btn.className.replace('indigo','green');btn.disabled=false;
+        document.getElementById('community-results').classList.remove('hidden');
+        showToast('Louvain: 3 communities detected - 1 high-risk organized crime cluster.','info');
+    },1800);
+}
+function runCentrality(){
+    networkNodes[0]={...networkNodes[0],symbolSize:52};renderNetworkGraph();
+    document.getElementById('centrality-badge').classList.remove('hidden');
+    showToast('Betweenness Centrality computed. Ravi Kumar (A1) identified as key broker.','info');
+}
+function runMOCluster(){
+    document.getElementById('mo-result').classList.remove('hidden');
+    showToast('QuickML MO Cluster: FIR 101 to FIR 102 - Cosine sim 0.92, Vehicle Theft cluster.','info');
+}
+function loadOffenderProfile(){document.getElementById('offender-profile').classList.toggle('hidden');}
+
+// ================================================================
+// PREDICTIVE AI MODAL
+// ================================================================
+window.predictiveInit=false;
+window.riskLeafletMap=null;
+function initPredictive(){
+    const listEl=document.getElementById('risk-score-list');
+    listEl.innerHTML='';
+    karnatakaDistricts.slice(0,12).forEach(d=>{
+        const col=d.risk>=70?'#ef4444':d.risk>=50?'#f59e0b':'#10b981';
+        const badge=d.risk>=70?'HIGH':d.risk>=50?'MED':'LOW';
+        const bc=d.risk>=70?'bg-red-500/20 text-red-400':d.risk>=50?'bg-yellow-500/20 text-yellow-400':'bg-green-500/20 text-green-400';
+        listEl.innerHTML+='<div class="flex items-center justify-between p-2 bg-[#102a43] rounded-lg gap-2"><div class="min-w-0"><p class="text-xs font-bold text-white truncate">'+d.name+'</p><p class="text-[10px] text-gray-500">'+d.crime+' incidents/mo</p></div><div class="flex items-center gap-2 shrink-0"><div class="w-14 h-1.5 bg-gray-700 rounded-full overflow-hidden"><div class="h-full rounded-full" style="width:'+d.risk+'%;background:'+col+'"></div></div><span class="'+bc+' text-[9px] px-1.5 py-0.5 rounded font-bold w-8 text-center">'+badge+'</span></div></div>';
+    });
+    // Build Leaflet choropleth map
+    const mapEl=document.getElementById('riskMapChart');
+    if(window.riskLeafletMap){window.riskLeafletMap.remove();window.riskLeafletMap=null;}
+    const rmap=L.map(mapEl,{zoomControl:true,attributionControl:false,scrollWheelZoom:true}).setView([15.3,76.5],7);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:20}).addTo(rmap);
+    window.riskLeafletMap=rmap;
+    // District lookup by normalized name
+    const distLookup={};
+    karnatakaDistricts.forEach(d=>{distLookup[d.name.toLowerCase()]=d;});
+    let geoLayer=null;
+    function getRiskColor(risk){return risk>=70?'#ef4444':risk>=50?'#f59e0b':'#10b981';}
+    function styleFeature(feature){
+        const name=(feature.properties.district||feature.properties.DISTRICT||feature.properties.NAME_2||'').toLowerCase();
+        const d=distLookup[name]||Object.values(distLookup).find(x=>name.includes(x.name.split(' ')[0].toLowerCase())||x.name.toLowerCase().includes(name.split(' ')[0]));
+        const risk=d?d.risk:40;
+        return{fillColor:getRiskColor(risk),weight:1.5,opacity:1,color:'rgba(255,255,255,0.3)',fillOpacity:0.75};
+    }
+    function onEachFeature(feature,layer){
+        const rawName=(feature.properties.district||feature.properties.DISTRICT||feature.properties.NAME_2||'Unknown');
+        const name=rawName.toLowerCase();
+        const d=distLookup[name]||Object.values(distLookup).find(x=>name.includes(x.name.split(' ')[0].toLowerCase())||x.name.toLowerCase().includes(name.split(' ')[0]));
+        const risk=d?d.risk:'N/A';
+        const crime=d?d.crime:'N/A';
+        const riskColor=risk>=70?'#ef4444':risk>=50?'#f59e0b':'#10b981';
+        const badge=risk>=70?'HIGH':risk>=50?'MED':'LOW';
+        // Permanent label — always visible, dark pill with white text
+        layer.bindTooltip(rawName,{
+            permanent:true,
+            direction:'center',
+            className:'district-label',
+            sticky:false
+        });
+        layer.bindPopup('<div style="background:#0b1f32;color:#f0f4f8;font-size:12px;min-width:175px;font-family:Inter,sans-serif;padding:4px"><b style="font-size:13px;color:#fff">'+rawName+'</b><hr style="border-color:rgba(255,255,255,.12);margin:6px 0"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:#94a3b8">Risk Score:</span><b style="color:'+riskColor+'">'+risk+'/100 ('+badge+')</b></div><div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">Incidents/mo:</span><b style="color:#fff">'+crime+'</b></div></div>');
+        layer.on({
+            mouseover:function(e){e.target.setStyle({weight:2.5,color:'#fff',fillOpacity:0.95});},
+            mouseout:function(e){if(geoLayer)geoLayer.resetStyle(e.target);}
+        });
+    }
+    // Invalidate size so the map renders correctly inside the modal
+    setTimeout(()=>rmap.invalidateSize(),100);
+    // Fetch Karnataka districts GeoJSON (lightweight, ~72KB, Karnataka-only)
+    fetch('https://raw.githubusercontent.com/adarshbiradar/maps-geojson/master/states/karnataka.json')
+      .then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+      .then(data=>{
+        geoLayer=L.geoJSON(data,{style:styleFeature,onEachFeature}).addTo(rmap);
+        if(geoLayer.getLayers().length>0)rmap.fitBounds(geoLayer.getBounds(),{padding:[8,8]});
+        else throw new Error('no features');
+      })
+      .catch(()=>{
+        // Fallback: labeled circle markers
+        karnatakaDistricts.forEach(d=>{
+            L.circleMarker([d.lat,d.lng],{
+                radius:Math.max(d.risk/7,9),
+                fillColor:getRiskColor(d.risk),
+                color:'rgba(255,255,255,0.45)',
+                weight:1.5,
+                fillOpacity:0.87
+            }).bindTooltip(d.name,{permanent:true,direction:'right',className:'text-xs',offset:[8,0]})
+             .bindPopup('<b>'+d.name+'</b><br>Risk: <b>'+d.risk+'/100</b><br>Crime: '+d.crime+'/mo').addTo(rmap);
+        });
+        rmap.fitBounds([[11.5,74],[18.5,78.5]],{padding:[10,10]});
+      });
+
+
+    const anomalies=[
+        {type:'Vehicle Theft Surge',district:'Bengaluru South',sev:'HIGH',conf:91,time:'2h ago',status:'unconfirmed'},
+        {type:'Cybercrime Spike',district:'Hubli-Dharwad',sev:'MED',conf:74,time:'6h ago',status:'unconfirmed'},
+        {type:'Unusual MO Pattern',district:'Mysuru',sev:'MED',conf:67,time:'12h ago',status:'confirmed'},
+        {type:'Night Crime Increase',district:'Kalaburagi',sev:'LOW',conf:55,time:'1d ago',status:'rejected'}
+    ];
+    const logEl=document.getElementById('anomaly-log');logEl.innerHTML='';
+    anomalies.forEach((a,ai)=>{
+        const sc=a.sev==='HIGH'?'red':a.sev==='MED'?'yellow':'blue';
+        const pulse=a.sev==='HIGH'?' anomaly-pulse':'';
+        const sh=a.status==='confirmed'?'<span class="text-emerald-400 text-[9px] font-bold">Confirmed</span>':a.status==='rejected'?'<span class="text-gray-500 text-[9px]">Rejected</span>':'<div class="flex gap-1 mt-1"><button class="text-[9px] px-1.5 py-0.5 bg-emerald-600/20 text-emerald-400 rounded border border-emerald-600/50 hover:bg-emerald-600/40" onclick="confirmAnomaly('+ai+',\'confirmed\',this)">Confirm</button><button class="text-[9px] px-1.5 py-0.5 bg-gray-600/20 text-gray-400 rounded border border-gray-600/50 hover:bg-gray-600/40" onclick="confirmAnomaly('+ai+',\'rejected\',this)">Reject</button></div>';
+        logEl.innerHTML+='<div id="anomaly-'+ai+'" class="p-2.5 rounded-lg border border-'+sc+'-500/30 bg-'+sc+'-500/5'+pulse+'"><div class="flex justify-between items-start mb-0.5"><p class="text-xs font-bold text-white leading-tight">'+a.type+'</p><span class="text-'+sc+'-400 text-[9px] font-bold ml-2 shrink-0">'+a.sev+'</span></div><p class="text-[10px] text-gray-400">'+a.district+' - '+a.time+'</p><p class="text-[10px] text-gray-500">Confidence: '+a.conf+'%</p>'+sh+'</div>';
+    });
+    const fc=echarts.init(document.getElementById('featureImportanceChart'));
+    fc.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},grid:{top:'3%',bottom:'12%',left:'5%',right:'8%',containLabel:true},xAxis:{type:'value',splitLine:{lineStyle:{color:'rgba(255,255,255,.05)'}},axisLabel:{color:'#94a3b8',fontSize:9}},yAxis:{type:'category',data:['GDP/Capita','Migration','Urbanization','Season Lag','Lag-30d','Festival','Unemployment'],axisLabel:{color:'#e2e8f0',fontSize:9},axisTick:{show:false},axisLine:{show:false}},series:[{type:'bar',data:[5,8,12,15,18,19,24],itemStyle:{borderRadius:[0,3,3,0],color:new echarts.graphic.LinearGradient(0,0,1,0,[{offset:0,color:'#6366f1'},{offset:1,color:'#a855f7'}])},label:{show:true,position:'right',color:'#fff',fontSize:9,formatter:'{c}%'}}]});
+    window.predictiveInit=true;
+}
+function confirmAnomaly(idx,action,btn){
+    btn.closest('div').innerHTML=action==='confirmed'?'<span class="text-emerald-400 text-[9px] font-bold">Confirmed - feedback sent to AutoML retraining</span>':'<span class="text-gray-500 text-[9px]">Rejected - false positive logged</span>';
+    showToast('Anomaly '+action+'. Feedback sent to Zia AutoML retraining pipeline.',action==='confirmed'?'success':'info');
+}
+
+// ================================================================
+// SOCIO-ECONOMIC MODAL
+// ================================================================
+window.socioInit=false;
+let socioScatter=null,corrMatrix=null;
+function initSocio(){const firstBtn=document.querySelector('.socio-btn');loadSocioData('unemployment',firstBtn?{target:firstBtn}:null);initCorrMatrix();window.socioInit=true;}
+function loadSocioData(indicator,evt){
+    window.currentIndicator=indicator;
+    document.querySelectorAll('.socio-btn').forEach(b=>{b.classList.remove('bg-teal-600/30','text-teal-300','border-teal-600/50');b.classList.add('text-gray-400','border-transparent');});
+    if(evt&&evt.target){evt.target.classList.add('bg-teal-600/30','text-teal-300','border-teal-600/50');evt.target.classList.remove('text-gray-400','border-transparent');}
+    const sd=socioData[indicator];
+    document.getElementById('pearson-result').textContent='r = '+(sd.pearson>=0?'+':'')+sd.pearson;
+    document.getElementById('pvalue-result').textContent='p = '+sd.pvalue+' ('+(parseFloat(sd.pvalue)<0.05?'significant':'not significant')+')';
+    document.getElementById('socio-chart-title').textContent='Scatter: '+sd.label+' vs Crime Risk Score (31 Districts)';
+    const pts=karnatakaDistricts.map((d,i)=>({name:d.name,value:[sd.values[i]||5,d.risk,d.risk]}));
+    const xs=pts.map(p=>p.value[0]),minX=Math.min(...xs),maxX=Math.max(...xs);
+    const slope=sd.pearson*18,intercept=55-slope*(minX+maxX)/2;
+    if(!socioScatter)socioScatter=echarts.init(document.getElementById('socioScatterChart'));
+    socioScatter.setOption({backgroundColor:'transparent',tooltip:{formatter:p=>'<b>'+p.data.name+'</b><br>'+sd.label+': <b>'+p.data.value[0]+'</b><br>Risk Score: <b>'+p.data.value[1]+'</b>'},grid:{left:'10%',right:'4%',top:'5%',bottom:'12%'},xAxis:{type:'value',name:sd.label,nameLocation:'middle',nameGap:28,nameTextStyle:{color:'#94a3b8',fontSize:11},axisLabel:{color:'#94a3b8',fontSize:10},splitLine:{lineStyle:{color:'rgba(255,255,255,.05)'}}},yAxis:{type:'value',name:'Crime Risk Score',nameLocation:'middle',nameGap:44,nameTextStyle:{color:'#94a3b8',fontSize:11},axisLabel:{color:'#94a3b8',fontSize:10},splitLine:{lineStyle:{color:'rgba(255,255,255,.05)'}},min:25,max:95},series:[
+        {type:'scatter',data:pts,symbolSize:13,itemStyle:{color:p=>p.data.value[2]>=70?'#ef4444':p.data.value[2]>=50?'#f59e0b':'#10b981',opacity:.85,borderColor:'rgba(255,255,255,.4)',borderWidth:1}},
+        {type:'line',data:[[minX,minX*slope+intercept],[maxX,maxX*slope+intercept]],lineStyle:{color:'#6366f1',type:'dashed',width:2},showSymbol:false}
+    ]});
+}
+function initCorrMatrix(){
+    if(!corrMatrix)corrMatrix=echarts.init(document.getElementById('corrMatrixChart'));
+    const inds=['Unemp','Literacy','Urban','GDP','Migr'];
+    const crts=['Theft','Cyber','Assault','Narc'];
+    const vals=[[.72,.68,.45,.38],[-.48,-.32,-.58,-.61],[.58,.75,.41,.29],[-.38,-.52,-.29,-.44],[.45,.38,.52,.31]];
+    const data=[];inds.forEach((_,i)=>crts.forEach((_,j)=>data.push([j,i,vals[i][j]])));
+    corrMatrix.setOption({backgroundColor:'transparent',tooltip:{formatter:p=>inds[p.data[1]]+' x '+crts[p.data[0]]+'<br>r = <b>'+p.data[2]+'</b>'},grid:{top:'3%',bottom:'12%',left:'18%',right:'5%'},xAxis:{type:'category',data:crts,axisLabel:{color:'#94a3b8',fontSize:10},axisLine:{show:false}},yAxis:{type:'category',data:inds,axisLabel:{color:'#94a3b8',fontSize:10},axisLine:{show:false}},visualMap:{min:-1,max:1,calculable:false,orient:'horizontal',left:'center',bottom:'0%',itemWidth:8,itemHeight:70,textStyle:{color:'#94a3b8',fontSize:9},inRange:{color:['#ef4444','#1e3a8a','#10b981']}},series:[{type:'heatmap',data,label:{show:true,formatter:p=>p.data[2].toFixed(2),fontSize:9,color:'#fff'},itemStyle:{borderColor:'#0b1f32',borderWidth:2,borderRadius:2}}]});
+}
+function refreshSocioCharts(){loadSocioData(window.currentIndicator,null);}
+
+// ================================================================
+// RESIZE + CLOSE HANDLERS
+// ================================================================
+window.addEventListener('resize',()=>{
+    [trendChart,heatmapChart,barChart,seasonalChart].forEach(c=>c.resize());
+    if(window.netChart)window.netChart.resize();
+    if(socioScatter)socioScatter.resize();
+    if(corrMatrix)corrMatrix.resize();
+});
+document.addEventListener('click',e=>{
+    if(!e.target.closest('.lineage-panel')&&!e.target.closest('.glass-panel')){
+        document.querySelectorAll('.lineage-panel').forEach(p=>p.style.display='none');
+    }
+});
+</script>
+</body>
+</html>
